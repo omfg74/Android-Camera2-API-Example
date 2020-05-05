@@ -2,6 +2,7 @@ package com.jack.mainactivity;
 
 import android.Manifest;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
@@ -16,21 +17,30 @@ import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
+import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.util.Size;
 import android.util.SparseIntArray;
+import android.view.Gravity;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.Toast;
+
+import com.google.gson.Gson;
+
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -40,6 +50,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "AndroidCameraApi";
@@ -54,7 +65,7 @@ public class MainActivity extends AppCompatActivity {
         ORIENTATIONS.append(Surface.ROTATION_270, 180);
     }
 
-    private String cameraId;
+    private String[] cameraIds;
     protected CameraDevice cameraDevice;
     protected CameraCaptureSession cameraCaptureSessions;
     protected CaptureRequest captureRequest;
@@ -79,7 +90,9 @@ public class MainActivity extends AppCompatActivity {
         takePictureButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                takePicture();
+//                takePicture();
+                cameraDevice.close();
+                selectCamera();
             }
         });
     }
@@ -88,7 +101,8 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
             //open your camera here
-            openCamera();
+//            openCamera();
+            selectCamera();
         }
 
         @Override
@@ -111,6 +125,8 @@ public class MainActivity extends AppCompatActivity {
             //This is called when the camera is open
             Log.e(TAG, "onOpened");
             cameraDevice = camera;
+            camera.getId();
+
             createCameraPreview();
         }
 
@@ -271,12 +287,118 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void openCamera() {
+
+    private void selectCamera() {
+
+//        int c = CameraMetadata.ANDROID_LOGICAL_MULTI_CAMERA_PHYSICAL_IDS;
+
+        LinearLayout linearLayout = new LinearLayout(this);
+        linearLayout.setGravity(Gravity.CENTER);
+        linearLayout.setOrientation(LinearLayout.VERTICAL);
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Select camera").create();
+        dialog.setView(linearLayout);
+        dialog.setCancelable(false);
+        CameraManager cameraManager = (CameraManager) getSystemService(CAMERA_SERVICE);
+        try {
+            String[] ids = cameraManager.getCameraIdList();
+
+            for (int i = 0; i < ids.length; i++) {
+                CameraCharacteristics chars = cameraManager.getCameraCharacteristics(ids[i]);
+                List<CameraCharacteristics.Key<?>> key = chars.getKeys();
+                List<CaptureRequest.Key<?>> kaeys = chars.getAvailableCaptureRequestKeys();
+//                chars.getPhysicalCameraIds();
+                ViewGroup.MarginLayoutParams lp = new ViewGroup.MarginLayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT);
+                Button button = new Button(this);
+                final int finalI = i;
+                button.setText("Camera " + i);
+                button.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                            ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQUEST_CAMERA_PERMISSION);
+                            return;
+                        } else {
+                            openCamera(finalI);
+                            dialog.dismiss();
+
+                        }
+                        dialog.dismiss();
+                    }
+                });
+
+                linearLayout.addView(button, lp);
+
+            }
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+        dialog.show();
+//        CameraDevice.getPhysicalCameraIds();
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+
+
+        try {
+            List<String> cameralist = Arrays.asList(manager.getCameraIdList());
+            for (int j = 0; j < cameralist.size(); j++) {
+                CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameralist.get(j));
+                Gson gson = new Gson();
+
+//                String json = gson.toJson(characteristics);
+//                Log.d("characteristics ","characteristics "+cameralist.get(j)+" "+json);
+                StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+                String json  = gson.toJson(map);
+                Log.d("characteristics ","characteristics "+cameralist.get(j)+" "+json);
+                Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
+                int[] capabilities = characteristics.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES);
+
+                for (int k = 0; k < capabilities.length; k++) {
+                    boolean hasCamera = false;
+                    if (capabilities[k] == CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA) {
+
+                        Log.d("cameratest", "ok" + capabilities[k]);
+                        Log.d("cameratest", "ok camera" + cameralist.get(j));
+                        Toast.makeText(this, "has multicamera", Toast.LENGTH_LONG).show();
+                        hasCamera = true;
+                    } else {
+                        Log.d("cameratest", "not ok" + capabilities[k]);
+                        Log.d("cameratest", "not ok camera" + cameralist.get(j));
+                    }
+                    if (!hasCamera) {
+                        Toast.makeText(this, "has NO multicamera", Toast.LENGTH_LONG).show();
+                    }
+
+                }
+
+            }
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+
+
+    }
+
+
+    private void openCamera(int i) {
+        CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+
+
         Log.e(TAG, "is camera open");
         try {
-            cameraId = manager.getCameraIdList()[0];
-            CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
+            cameraIds = manager.getCameraIdList();
+            CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraIds[i]);
+            int sdk = android.os.Build.VERSION.SDK_INT;
+            if (sdk >= 28) {
+
+                Set<String> phisicaIds = characteristics.getPhysicalCameraIds();
+
+                for (String id : phisicaIds) {
+                    Log.d("camera", "phisical id " + id);
+                }
+                Log.d("camera", "kays  " + characteristics.getAvailableSessionKeys());
+                Log.d("camera", "phisical kays  " + characteristics.getAvailablePhysicalCameraRequestKeys());
+//            Log.d("camera", "permissions   " + characteristics.getKeysNeedingPermission());
+            }
             StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
             assert map != null;
             imageDimension = map.getOutputSizes(SurfaceTexture.class)[0];
@@ -285,7 +407,7 @@ public class MainActivity extends AppCompatActivity {
                 ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQUEST_CAMERA_PERMISSION);
                 return;
             }
-            manager.openCamera(cameraId, stateCallback, null);
+            manager.openCamera(cameraIds[i], stateCallback, null);
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
@@ -332,7 +454,8 @@ public class MainActivity extends AppCompatActivity {
         Log.e(TAG, "onResume");
         startBackgroundThread();
         if (textureView.isAvailable()) {
-            openCamera();
+//            openCamera();
+            selectCamera();
         } else {
             textureView.setSurfaceTextureListener(textureListener);
         }
